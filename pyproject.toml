@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qira"
+version = "0.2.0"
+description = "Quantum-Inspired Governed Reasoning Architecture"
+requires-python = ">=3.10"
+dependencies = [
+    "anthropic",
+    "numpy",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
