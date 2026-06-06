@@ -4,6 +4,7 @@ from .transition import TransitionOperator, RuleEngine
 from .interference import InterferenceModule
 from .spectral import SpectralMixer
 from .cycle import reasoning_cycle, is_stable
+from .expander import LLMExpander, LLMVerifier
 
 __all__ = [
     "PathState",
@@ -14,4 +15,6 @@ __all__ = [
     "SpectralMixer",
     "reasoning_cycle",
     "is_stable",
+    "LLMExpander",
+    "LLMVerifier",
 ]
