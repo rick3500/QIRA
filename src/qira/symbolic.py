@@ -4,11 +4,10 @@ True QIRA for symbolic math.
 States are sympy expressions — not text.
 Transitions are algebraic operators (expand, simplify, factor, collect).
 Interference is symbolic equivalence — no LLM.
+Deduplication merges paths with the same canonical form, summing amplitudes.
 FFT smooths the amplitude distribution across all live paths.
 Amplitude tracks simplification progress.
-Collapse selects the most simplified form.
-
-This is the Markov chain + quantum-inspired architecture the blueprint describes.
+Collapse selects the most dominant (simplest) surviving path.
 """
 
 from __future__ import annotations
@@ -18,13 +17,12 @@ from sympy.core.expr import Expr
 
 x, y, z = symbols("x y z")
 
-# Algebraic transformation operators — each is a Markov transition candidate
 _TRANSFORMS: list[tuple[str, callable]] = [
-    ("expand",     expand),
-    ("simplify",   simplify),
-    ("factor",     factor),
-    ("collect_x",  lambda e: collect(e, x)),
-    ("cancel",     cancel),
+    ("expand",    expand),
+    ("simplify",  simplify),
+    ("factor",    factor),
+    ("collect_x", lambda e: collect(e, x)),
+    ("cancel",    cancel),
 ]
 
 
@@ -33,15 +31,12 @@ _TRANSFORMS: list[tuple[str, callable]] = [
 # ---------------------------------------------------------------------------
 
 class SymbolicState:
-    """A single reasoning path — an algebraic expression plus its derivation history."""
-
     def __init__(self, expr: Expr, history: list[str] | None = None) -> None:
         self.expr = expr
         self.history: list[str] = history if history is not None else [str(expr)]
         self.score: float = 0.0
 
     def complexity(self) -> int:
-        """Number of operations in the expression — lower is more simplified."""
         return count_ops(self.expr)
 
     def clone(self) -> SymbolicState:
@@ -56,8 +51,6 @@ class SymbolicState:
 # ---------------------------------------------------------------------------
 
 class SymbolicSuperposition:
-    """Superposition of candidate algebraic states with associated amplitudes."""
-
     def __init__(self) -> None:
         self.states: list[SymbolicState] = []
         self.amplitudes: list[float] = []
@@ -71,14 +64,40 @@ class SymbolicSuperposition:
         if total:
             self.amplitudes = [a / total for a in self.amplitudes]
 
-    def prune(self, min_amplitude: float = 0.05) -> None:
-        pairs = [(s, a) for s, a in zip(self.states, self.amplitudes) if abs(a) >= min_amplitude]
-        if pairs:
-            self.states, self.amplitudes = map(list, zip(*pairs))
-            self.normalize()
+    def deduplicate(self) -> None:
+        """Merge paths whose expressions share the same expanded canonical form.
+
+        Multiple routes to the same mathematical truth sum their amplitudes
+        rather than proliferating as separate paths.
+        """
+        canonical: dict[str, tuple[SymbolicState, float]] = {}
+        for state, amp in zip(self.states, self.amplitudes):
+            key = str(expand(state.expr))
+            if key in canonical:
+                existing, existing_amp = canonical[key]
+                # Keep the simpler derivation, combine amplitudes
+                winner = state if state.complexity() < existing.complexity() else existing
+                canonical[key] = (winner, existing_amp + amp)
+            else:
+                canonical[key] = (state, amp)
+        self.states = [s for s, _ in canonical.values()]
+        self.amplitudes = [a for _, a in canonical.values()]
+        self.normalize()
+
+    def prune(self, min_amplitude: float = 0.05, max_paths: int = 15) -> None:
+        """Drop low-amplitude paths and cap total count to prevent explosion."""
+        pairs = sorted(
+            zip(self.states, self.amplitudes),
+            key=lambda p: abs(p[1]),
+            reverse=True,
+        )[:max_paths]
+        # Keep paths above threshold; always keep at least the top one
+        filtered = [(s, a) for s, a in pairs if abs(a) >= min_amplitude]
+        pairs = filtered if filtered else [pairs[0]]
+        self.states, self.amplitudes = map(list, zip(*pairs))
+        self.normalize()
 
     def spectral_mix(self) -> None:
-        """FFT low-pass filter smooths amplitude noise across the path ensemble."""
         if len(self.amplitudes) < 2:
             return
         amps = np.array(self.amplitudes, dtype=float)
@@ -108,21 +127,14 @@ class SymbolicSuperposition:
 # ---------------------------------------------------------------------------
 
 class AlgebraTransitionOperator:
-    """
-    Applies every algebraic transformation to every live state.
-    Amplitude is boosted proportional to the complexity reduction achieved —
-    simpler results naturally dominate.
-    """
-
     def update(self, sup: SymbolicSuperposition) -> None:
         new_states: list[SymbolicState] = []
         new_amplitudes: list[float] = []
 
         for state, amp in zip(sup.states, sup.amplitudes):
-            proposals = self._propose(state)
-            for proposal in proposals:
+            for proposal in self._propose(state):
                 gain = max(0, state.complexity() - proposal.complexity())
-                score = 1.0 + gain * 0.3   # reward simplification
+                score = 1.0 + gain * 0.3
                 proposal.score = score
                 new_states.append(proposal)
                 new_amplitudes.append(amp * score)
@@ -130,6 +142,7 @@ class AlgebraTransitionOperator:
         sup.states = new_states
         sup.amplitudes = new_amplitudes
         sup.normalize()
+        sup.deduplicate()   # collapse equivalent paths before interference
 
     def _propose(self, state: SymbolicState) -> list[SymbolicState]:
         proposals = []
@@ -139,25 +152,18 @@ class AlgebraTransitionOperator:
                 if new_expr != state.expr:
                     proposals.append(SymbolicState(
                         new_expr,
-                        state.history + [f"{name:12s}  →  {new_expr}"],
+                        state.history + [f"{name:12s}  ->  {new_expr}"],
                     ))
             except Exception:
                 pass
-        return proposals or [state.clone()]  # carry forward if no transform applies
+        return proposals or [state.clone()]
 
 
 # ---------------------------------------------------------------------------
-# Symbolic Interference (no LLM — pure sympy)
+# Symbolic Interference (no LLM)
 # ---------------------------------------------------------------------------
 
 class SymbolicInterference:
-    """
-    Constructive interference: two paths that are mathematically equivalent
-    amplify each other — they're two routes to the same truth.
-    Destructive interference: a path that is significantly more complex than
-    another is suppressed — it's going the wrong direction.
-    """
-
     def apply(self, sup: SymbolicSuperposition) -> None:
         n = len(sup.states)
         for i in range(n):
@@ -174,10 +180,9 @@ class SymbolicInterference:
                 else:
                     ci, cj = si.complexity(), sj.complexity()
                     if ci > cj * 2:
-                        sup.amplitudes[i] *= 0.5   # i is much more complex — suppress
+                        sup.amplitudes[i] *= 0.5
                     elif cj > ci * 2:
                         sup.amplitudes[j] *= 0.5
-
         sup.normalize()
 
 
@@ -192,10 +197,10 @@ def symbolic_reasoning_cycle(
     max_iters: int = 10,
 ) -> SymbolicState:
     for iteration in range(max_iters):
-        transition.update(sup)
-        interference.apply(sup)
-        sup.spectral_mix()
-        sup.prune()
+        transition.update(sup)   # expand paths + deduplicate
+        interference.apply(sup)  # adjust amplitudes by equivalence
+        sup.spectral_mix()       # FFT smoothing
+        sup.prune()              # drop low-amplitude paths, cap at 15
 
         print(f"  [cycle {iteration + 1}] {sup}")
 

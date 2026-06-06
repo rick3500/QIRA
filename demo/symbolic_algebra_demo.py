@@ -54,9 +54,9 @@ def main() -> None:
     # the raw expression, an expanded form, and a factored form.
     # Each is a valid entry point — the system finds the simplest.
     sup = SymbolicSuperposition()
-    sup.add_state(SymbolicState(expr,         [f"initial       →  {expr}"]),         amplitude=1.0)
-    sup.add_state(SymbolicState(expand(expr), [f"expand        →  {expand(expr)}"]), amplitude=1.0)
-    sup.add_state(SymbolicState(factor(expr), [f"factor        →  {factor(expr)}"]), amplitude=1.0)
+    sup.add_state(SymbolicState(expr,         [f"initial       ->  {expr}"]),         amplitude=1.0)
+    sup.add_state(SymbolicState(expand(expr), [f"expand        ->  {expand(expr)}"]), amplitude=1.0)
+    sup.add_state(SymbolicState(factor(expr), [f"factor        ->  {factor(expr)}"]), amplitude=1.0)
     sup.normalize()
 
     print(f"Initial state: {sup}")
@@ -70,7 +70,7 @@ def main() -> None:
     print("\n" + "=" * 60)
     print("FINAL ANSWER (collapsed path)")
     print("=" * 60)
-    print(f"\n  {pretty(result.expr, use_unicode=True)}\n")
+    print(f"\n  {pretty(result.expr, use_unicode=False)}\n")
     print("Derivation history:")
     for step in result.history:
         print(f"  {step}")
