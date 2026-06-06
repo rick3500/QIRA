@@ -13,7 +13,7 @@ This is the Markov chain + quantum-inspired architecture the blueprint describes
 
 from __future__ import annotations
 import numpy as np
-from sympy import symbols, expand, collect, factor, simplify, count_ops, cancel, pretty
+from sympy import symbols, expand, collect, factor, simplify, count_ops, cancel
 from sympy.core.expr import Expr
 
 x, y, z = symbols("x y z")
@@ -139,7 +139,7 @@ class AlgebraTransitionOperator:
                 if new_expr != state.expr:
                     proposals.append(SymbolicState(
                         new_expr,
-                        state.history + [f"{name:12s}  →  {pretty(new_expr, use_unicode=True)}"],
+                        state.history + [f"{name:12s}  →  {new_expr}"],
                     ))
             except Exception:
                 pass
