@@ -36,6 +36,7 @@ def reasoning_cycle(
         transition.update(thought_state)
         interference.apply(thought_state)
         mixer.mix(thought_state)
+        thought_state.prune()
 
         print(f"  [cycle {iteration + 1}] {thought_state}")
 

@@ -17,6 +17,14 @@ class ThoughtState:
             return
         self.amplitudes = [a / total for a in self.amplitudes]
 
+    def prune(self, min_amplitude: float = 0.05) -> None:
+        """Drop paths whose amplitude falls below the threshold, then renormalize."""
+        pairs = [(p, a) for p, a in zip(self.paths, self.amplitudes) if abs(a) >= min_amplitude]
+        if not pairs:
+            return
+        self.paths, self.amplitudes = map(list, zip(*pairs))
+        self.normalize()
+
     def collapse(self) -> PathState:
         idx = max(range(len(self.amplitudes)), key=lambda i: abs(self.amplitudes[i]))
         return self.paths[idx]
