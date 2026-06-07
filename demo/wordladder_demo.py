@@ -33,17 +33,28 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 # Dictionary -- every valid 4-letter English word from a frequency corpus
 # ---------------------------------------------------------------------------
 
-def _load_words() -> set[str]:
+MIN_FREQ = 500   # exclude rare/obscure words — only accept words with
+                 # >= 500 corpus hits so "macs"(66) and "mads"(233) are
+                 # excluded while "mast"(1728) and "malt"(1987) are kept.
+
+def _load_words():
     try:
         from spellchecker import SpellChecker
-        corpus = SpellChecker().word_frequency.dictionary
-        return {w for w in corpus if len(w) == 4 and w.isascii() and w.isalpha()}
+        import math
+        freq_map = SpellChecker().word_frequency
+        words = {
+            w for w in freq_map.dictionary
+            if len(w) == 4 and w.isascii() and w.isalpha()
+            and freq_map[w] >= MIN_FREQ
+        }
+        freq_weight = {w: math.log(freq_map[w] + 1) for w in words}
+        return words, freq_weight
     except ImportError:
         raise SystemExit(
             "pyspellchecker not installed. Run: pip install pyspellchecker"
         )
 
-WORDS_4 = _load_words()
+WORDS_4, FREQ_WEIGHT = _load_words()
 
 
 # ---------------------------------------------------------------------------
@@ -133,7 +144,7 @@ class WordSuperposition:
             self.nodes, self.amplitudes = map(list, zip(*pairs))
             self.normalize()
 
-    def expand(self, word_set: set[str]) -> "WordSuperposition":
+    def expand(self, word_set: set[str], freq_weight: dict[str, float]) -> "WordSuperposition":
         """Markov transition: each word -> all valid one-letter-change neighbors."""
         next_sup = WordSuperposition(self.target)
         for node, amp in zip(self.nodes, self.amplitudes):
@@ -144,10 +155,10 @@ class WordSuperposition:
                         neighbor, node.path + [node.word], self.target
                     )
                     dist = new_node.distance
-                    # Geometric boost: d=0 scores 4^4=256x more than d=4.
-                    # This keeps the proximity signal strong across a large
-                    # corpus where linear boosts get swamped by sheer word count.
-                    score = 4.0 ** (4 - dist)
+                    # Geometric proximity boost: d=0 scores 4^4=256x more than d=4.
+                    # Frequency weight: log(count+1) so "mast" (1728 hits) beats
+                    # "macs" (66 hits) at the same Hamming distance.
+                    score = 4.0 ** (4 - dist) * freq_weight.get(neighbor, 1.0)
                     new_node.score = score
                     next_sup.add(new_node, amp * score)
         next_sup.deduplicate()
@@ -197,6 +208,8 @@ def main() -> None:
     print("  Transitions = one-letter substitutions (Markov)")
     print("  Amplitude   = boosted by Hamming proximity to target")
     print("                d=1 word scores 4x higher than d=3 word")
+    print("                also weighted by log(word frequency) so")
+    print("                common words beat obscure-but-valid ones")
     print("  Dedup       = max-path keeps best route to each word")
     print("  FFT         = smooths amplitude across the word ensemble")
     print("  Collapse    = follow highest-amplitude word at each depth")
@@ -213,7 +226,7 @@ def main() -> None:
     answer_node = None
 
     for step in range(1, MAX_STEPS + 1):
-        sup = sup.expand(WORDS_4)
+        sup = sup.expand(WORDS_4, FREQ_WEIGHT)
 
         target_node, _ = sup.find(TARGET)
         tag = "  <-- TARGET REACHED" if target_node else ""
